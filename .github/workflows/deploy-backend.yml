@@ -30,8 +30,8 @@ jobs:
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           # আপনার প্রজেক্ট স্ট্রাকচারের সাথে মিলিয়ে নিন।
           # commonJS/JS উদাহরণ:
@@ -50,16 +50,16 @@ jobs:
       - name: SSH → install & restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
           script: |
             set -e
 
             echo "➤ Ensure deploy dir"
-            mkdir -p "${{ secrets.VPS_PATH }}"
-            cd "${{ secrets.VPS_PATH }}"
+            mkdir -p "${{ secrets.SERVER_PATH }}"
+            cd "${{ secrets.SERVER_PATH }}"
 
             echo "➤ Write .env from secret"
             # BACKEND_ENV secret-এ আপনার পুরো .env কন্টেন্ট রাখুন (multi-line)
