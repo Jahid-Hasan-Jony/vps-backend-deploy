@@ -49,7 +49,7 @@ jobs:
             package.json
             package-lock.json
             server.js
-            .npmrc
+            .gitignore
             # Add any other necessary files like config folders, etc.
             # Example: configs/**
           target: ${{ secrets.SERVER_PATH }}
