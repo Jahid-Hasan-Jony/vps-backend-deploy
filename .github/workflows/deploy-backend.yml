@@ -43,7 +43,7 @@ jobs:
             # টাইপস্ক্রিপ্ট হলে dist/** কপি করুন (উপরে build চালিয়ে):
             # dist/**
             .npmrc
-          target: ${{ secrets.SSH_PRIVATE_KEY }}
+          target: ${{ secrets.SERVER_PATH }}
           overwrite: true
           debug: true
 
