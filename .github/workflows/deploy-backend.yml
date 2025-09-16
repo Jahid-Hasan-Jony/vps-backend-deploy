@@ -18,35 +18,45 @@ jobs:
           node-version: 22
           cache: npm
 
-      # যদি TypeScript / build দরকার হয়, আনকমেন্ট করুন:
-      # - name: Install deps (build-time)
+      # --- Uncomment and configure if you use TypeScript or a bundler ---
+      # - name: Install dependencies (for build)
       #   run: npm ci
       #
-      # - name: Build project (TS / bundler)
+      # - name: Build project
       #   run: npm run build
+      # ---------------------------------------------------------------
 
-      # --- কপি করার ফাইল বাছাই ---
-      # JS (server.js/Express) হলে ন্যূনতম এগুলো কপি করুন:
+      # --- Debugging Step: List files ---
+      - name: List files in workspace
+        run: ls -la ${{ github.workspace }}
+      # --- End Debugging Step ---
+
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # আপনার প্রজেক্ট স্ট্রাকচারের সাথে মিলিয়ে নিন।
-          # commonJS/JS উদাহরণ:
+          # --- Adjust 'source' based on your project structure ---
+          # If you built with TypeScript (outputting to dist/**):
+          # source: |
+          #   package.json
+          #   package-lock.json
+          #   dist/**
+          #   .npmrc
+          # If it's plain JS (server.js directly):
           source: |
             package.json
             package-lock.json
             server.js
-            # টাইপস্ক্রিপ্ট হলে dist/** কপি করুন (উপরে build চালিয়ে):
-            # dist/**
             .npmrc
+            # Add any other necessary files like config folders, etc.
+            # Example: configs/**
           target: ${{ secrets.SERVER_PATH }}
           overwrite: true
           debug: true
 
-      - name: SSH → install & restart PM2
+      - name: SSH → install deps & restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -56,7 +66,7 @@ jobs:
           script: |
             set -e
 
-            echo "➤ Ensure deploy dir"
+            echo "➤ Ensure deploy dir exists"
             mkdir -p "${{ secrets.SERVER_PATH }}"
             cd "${{ secrets.SERVER_PATH }}"
 
@@ -69,7 +79,7 @@ jobs:
             echo "➤ Create runtime dirs"
             mkdir -p uploads logs
 
-            echo "➤ Install production deps"
+            echo "➤ Install production dependencies"
             if [ -f package-lock.json ]; then
               npm ci --omit=dev
             else
@@ -90,4 +100,4 @@ jobs:
             fi
 
             pm2 save
-            echo "➤ Deploy done"
+            echo "➤ Deploy complete!"
