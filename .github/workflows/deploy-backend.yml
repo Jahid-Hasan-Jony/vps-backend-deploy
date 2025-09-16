@@ -39,7 +39,6 @@ jobs:
             package.json
             package-lock.json
             server.js
-            src/**
             # টাইপস্ক্রিপ্ট হলে dist/** কপি করুন (উপরে build চালিয়ে):
             # dist/**
             .npmrc
