@@ -32,7 +32,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           # আপনার প্রজেক্ট স্ট্রাকচারের সাথে মিলিয়ে নিন।
           # commonJS/JS উদাহরণ:
           source: |
@@ -43,7 +43,7 @@ jobs:
             # টাইপস্ক্রিপ্ট হলে dist/** কপি করুন (উপরে build চালিয়ে):
             # dist/**
             .npmrc
-          target: ${{ secrets.VPS_PATH }}
+          target: ${{ secrets.SSH_PRIVATE_KEY }}
           overwrite: true
           debug: true
 
@@ -52,7 +52,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
           script: |
             set -e
