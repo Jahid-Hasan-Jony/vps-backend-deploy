@@ -1,0 +1,94 @@
+# name: Deploy Backend (Node/Express → VPS)
+
+# on:
+#   push:
+#     branches: [ main ]         # main এ push হলেই ডিপ্লয়
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout repo
+#         uses: actions/checkout@v4
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: 22
+#           cache: npm
+
+#       # যদি TypeScript / build দরকার হয়, আনকমেন্ট করুন:
+#       # - name: Install deps (build-time)
+#       #   run: npm ci
+#       #
+#       # - name: Build project (TS / bundler)
+#       #   run: npm run build
+
+#       # --- কপি করার ফাইল বাছাই ---
+#       # JS (server.js/Express) হলে ন্যূনতম এগুলো কপি করুন:
+#       - name: Copy backend files to VPS
+#         uses: appleboy/scp-action@v0.1.7
+#         with:
+#           host: ${{ secrets.VPS_HOST }}
+#           username: ${{ secrets.VPS_USER }}
+#           key: ${{ secrets.VPS_KEY }}
+#           # আপনার প্রজেক্ট স্ট্রাকচারের সাথে মিলিয়ে নিন।
+#           # commonJS/JS উদাহরণ:
+#           source: |
+#             package.json
+#             package-lock.json
+#             server.js
+#             src/**
+#             # টাইপস্ক্রিপ্ট হলে dist/** কপি করুন (উপরে build চালিয়ে):
+#             # dist/**
+#             .npmrc
+#           target: ${{ secrets.VPS_PATH }}
+#           overwrite: true
+#           debug: true
+
+#       - name: SSH → install & restart PM2
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets.VPS_HOST }}
+#           username: ${{ secrets.VPS_USER }}
+#           key: ${{ secrets.VPS_KEY }}
+#           script_stop: true
+#           script: |
+#             set -e
+
+#             echo "➤ Ensure deploy dir"
+#             mkdir -p "${{ secrets.VPS_PATH }}"
+#             cd "${{ secrets.VPS_PATH }}"
+
+#             echo "➤ Write .env from secret"
+#             # BACKEND_ENV secret-এ আপনার পুরো .env কন্টেন্ট রাখুন (multi-line)
+#             cat > .env << 'EOF'
+#             ${{ secrets.BACKEND_ENV }}
+#             EOF
+
+#             echo "➤ Create runtime dirs"
+#             mkdir -p uploads logs
+
+#             echo "➤ Install production deps"
+#             if [ -f package-lock.json ]; then
+#               npm ci --omit=dev
+#             else
+#               npm install --production
+#             fi
+
+#             echo "➤ Start/Restart PM2 app"
+#             # PM2_APP = অ্যাপের নাম (secret)
+#             if pm2 list | grep -q "${{ secrets.PM2_APP }}"; then
+#               pm2 restart "${{ secrets.PM2_APP }}"
+#             else
+#               # JS হলে server.js; TS build হলে dist/server.js ইত্যাদি দিন
+#               if [ -f dist/server.js ]; then
+#                 pm2 start dist/server.js --name "${{ secrets.PM2_APP }}"
+#               else
+#                 pm2 start server.js --name "${{ secrets.PM2_APP }}"
+#               fi
+#             fi
+
+#             pm2 save
+#             echo "➤ Deploy done"
