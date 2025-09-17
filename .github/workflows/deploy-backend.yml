@@ -32,26 +32,12 @@ jobs:
       # --- End Debugging Step ---
 
       - name: Copy backend files to VPS
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v0.1.8
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # --- Adjust 'source' based on your project structure ---
-          # If you built with TypeScript (outputting to dist/**):
-          # source: |
-          #   package.json
-          #   package-lock.json
-          #   dist/**
-          #   .npmrc
-          # If it's plain JS (server.js directly):
-          source: |
-            package.json
-            package-lock.json
-            server.js
-            .gitignore
-            # Add any other necessary files like config folders, etc.
-            # Example: configs/**
+          source: "package.json,package-lock.json,server.js"
           target: ${{ secrets.SERVER_PATH }}
           overwrite: true
           debug: true
