@@ -24,7 +24,7 @@ jobs:
           ls -la
           (command -v tree && tree -a -L 2 || true)
 
-      # (Optional) ensure target dir exists before scp
+      # Ensure target dir exists (prevents scp failure)
       - name: SSH → prepare deploy dir
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -38,6 +38,7 @@ jobs:
             echo "Prepared: ${{ secrets.SERVER_PATH }}"
             ls -la "${{ secrets.SERVER_PATH }}" || true
 
+      # NOTE: appleboy/scp-action@v0.1.7 needs a single-line, comma-separated source
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -49,50 +50,34 @@ jobs:
           overwrite: true
           debug: true
 
-      - name: SSH → install deps & restart PM2 (safe)
+      - name: SSH → install deps & restart PM2 (env-safe)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
-          # request_pty: true # nvm profile দরকার হলে আনকমেন্ট করুন
+          # request_pty: true   # If you use nvm and PATH doesn't load, uncomment this
           script: |
-            # safer bash flags (error + debug)
             set -Eeuo pipefail
-            trap 'echo "❌ Error at line $LINENO"; exit 1' ERR
+            trap 'echo "❌ Error at line $LINENO"; pm2 logs "${{ secrets.PM2_APP }}" --lines 120 --nostream || true; exit 1' ERR
 
             DEPLOY_DIR="${{ secrets.SERVER_PATH }}"
             APP_NAME="${{ secrets.PM2_APP }}"
 
             echo "➤ Ensure Node.js/npm present (install if missing)"
             if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-              echo "  Installing Node.js via NodeSource..."
               curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
               apt-get install -y nodejs
             fi
 
-            # If you use nvm on the server, load it (won't break if absent)
+            # If you use nvm on the server, load it (harmless if absent)
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" || true
             [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion" || true
+            command -v npm >/dev/null 2>&1 && export PATH="$(npm bin -g):$PATH"
 
-            # Add global npm bin ONLY if npm exists
-            if command -v npm >/dev/null 2>&1; then
-              export PATH="$(npm bin -g):$PATH"
-            fi
-
-            echo "➤ Versions"
-            node -v || true
-            npm -v || true
-            which pm2 || true
-
-            echo "➤ Ensure PM2 installed"
-            if ! command -v pm2 >/dev/null 2>&1; then
-              npm i -g pm2
-            fi
-
-            echo "➤ Move to deploy dir: $DEPLOY_DIR"
+            echo "➤ Go to deploy dir"
             cd "$DEPLOY_DIR"
             pwd
             ls -la
@@ -102,8 +87,16 @@ jobs:
             ${{ secrets.BACKEND_ENV }}
             EOF
 
-            echo "➤ Create runtime dirs"
-            mkdir -p uploads logs
+            echo "➤ Export env from .env so PM2 inherits"
+            set -a
+            [ -f .env ] && . ./.env
+            set +a
+
+            echo "➤ Sanity env"
+            echo "PORT=${PORT:-<not-set>}"
+
+            echo "➤ Normalize ownership (optional)"
+            chown -R "$USER:$USER" "$DEPLOY_DIR" || true
 
             echo "➤ Install production dependencies"
             if [ -f package-lock.json ]; then
@@ -112,23 +105,24 @@ jobs:
               npm install --production
             fi
 
-            echo "➤ Verify entry"
-            ENTRY_FILE="server.js"
+            ENTRY_FILE="$DEPLOY_DIR/server.js"
             if [ ! -f "$ENTRY_FILE" ]; then
-              echo "Files here:"
-              ls -la
               echo "❌ Entry not found: $ENTRY_FILE"
+              ls -la
               exit 1
             fi
 
             echo "➤ Start/Restart PM2: $APP_NAME"
             if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
-              pm2 restart "$APP_NAME"
+              pm2 restart "$APP_NAME" --update-env || { pm2 logs "$APP_NAME" --lines 200 --nostream; exit 1; }
             else
-              pm2 start "$ENTRY_FILE" --name "$APP_NAME"
+              pm2 start "$ENTRY_FILE" --name "$APP_NAME" --cwd "$DEPLOY_DIR" || { pm2 logs "$APP_NAME" --lines 200 --nostream; exit 1; }
             fi
 
             pm2 save
             pm2 ls
+
+            echo "➤ Tail last logs"
+            pm2 logs "$APP_NAME" --lines 80 --nostream || true
 
             echo "➤ Deploy complete!"
