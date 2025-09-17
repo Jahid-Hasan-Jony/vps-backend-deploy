@@ -2,7 +2,7 @@ name: Deploy Backend (Node/Express → VPS)
 
 on:
   push:
-    branches: [main] # main এ push হলেই ডিপ্লয়
+    branches: [main]
 
 jobs:
   deploy:
@@ -15,22 +15,30 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: "22"
+          cache: "npm"
 
-      # --- Uncomment and configure if you use TypeScript or a bundler ---
-      # - name: Install dependencies (for build)
-      #   run: npm ci
-      #
-      # - name: Build project
-      #   run: npm run build
-      # ---------------------------------------------------------------
+      - name: Show repo layout
+        run: |
+          pwd
+          ls -la
+          (command -v tree && tree -a -L 2 || true)
 
-      # --- Debugging Step: List files ---
-      - name: List files in workspace
-        run: ls -la ${{ github.workspace }}
-      # --- End Debugging Step ---
+      # ---- Prepare server directory so that scp target exists ----
+      - name: SSH → prepare deploy dir
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            mkdir -p "${{ secrets.SERVER_PATH }}"
+            echo "Prepared: ${{ secrets.SERVER_PATH }}"
+            ls -la "${{ secrets.SERVER_PATH }}" || true
 
+      # ---- Copy only needed files (root: server.js) ----
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -42,6 +50,7 @@ jobs:
           overwrite: true
           debug: true
 
+      # ---- Install deps, write .env, run/restart PM2 ----
       - name: SSH → install deps & restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -49,15 +58,35 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
+          # request_pty: true  # nvm থাকলে PATH issue হলে আনকমেন্ট করুন
           script: |
             set -e
 
-            echo "➤ Ensure deploy dir exists"
-            mkdir -p "${{ secrets.SERVER_PATH }}"
+            # --- If you use nvm, load it for non-login shell ---
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+
+            # Ensure global npm bin is on PATH (pm2 lives here)
+            export PATH="$(npm bin -g):$PATH"
+
+            echo "➤ Versions"
+            node -v || true
+            npm -v || true
+            which pm2 || true
+
+            # Install pm2 if missing
+            if ! command -v pm2 >/dev/null 2>&1; then
+              echo "➤ Installing PM2 globally"
+              npm i -g pm2
+            fi
+
+            echo "➤ Go to deploy dir"
             cd "${{ secrets.SERVER_PATH }}"
+            echo "PWD=$(pwd)"
+            ls -la
 
             echo "➤ Write .env from secret"
-            # BACKEND_ENV secret-এ আপনার পুরো .env কন্টেন্ট রাখুন (multi-line)
             cat > .env << 'EOF'
             ${{ secrets.BACKEND_ENV }}
             EOF
@@ -72,18 +101,23 @@ jobs:
               npm install --production
             fi
 
+            # Entry is always root server.js (no dist)
+            ENTRY_FILE="server.js"
+            if [ ! -f "$ENTRY_FILE" ]; then
+              echo "❌ Entry file not found: $ENTRY_FILE"
+              ls -la
+              exit 1
+            fi
+
             echo "➤ Start/Restart PM2 app"
-            # PM2_APP = অ্যাপের নাম (secret)
-            if pm2 list | grep -q "${{ secrets.PM2_APP }}"; then
-              pm2 restart "${{ secrets.PM2_APP }}"
+            APP_NAME="${{ secrets.PM2_APP }}"
+            if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+              pm2 restart "$APP_NAME"
             else
-              # JS হলে server.js; TS build হলে dist/server.js ইত্যাদি দিন
-              if [ -f dist/server.js ]; then
-                pm2 start dist/server.js --name "${{ secrets.PM2_APP }}"
-              else
-                pm2 start server.js --name "${{ secrets.PM2_APP }}"
-              fi
+              pm2 start "$ENTRY_FILE" --name "$APP_NAME"
             fi
 
             pm2 save
+            pm2 ls
+
             echo "➤ Deploy complete!"
