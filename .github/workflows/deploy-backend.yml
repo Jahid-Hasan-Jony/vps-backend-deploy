@@ -24,7 +24,7 @@ jobs:
           ls -la
           (command -v tree && tree -a -L 2 || true)
 
-      # Ensure target dir exists (prevents scp failure)
+      # Ensure target dir exists before scp
       - name: SSH → prepare deploy dir
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -38,7 +38,7 @@ jobs:
             echo "Prepared: ${{ secrets.SERVER_PATH }}"
             ls -la "${{ secrets.SERVER_PATH }}" || true
 
-      # NOTE: appleboy/scp-action@v0.1.7 needs a single-line, comma-separated source
+      # NOTE: appleboy/scp-action@v0.1.7 needs a single-line, comma-separated 'source'
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -57,7 +57,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
-          # request_pty: true   # If you use nvm and PATH doesn't load, uncomment this
+          # request_pty: true   # nvm ব্যবহার করলে PATH issue হলে আনকমেন্ট করুন
           script: |
             set -Eeuo pipefail
             trap 'echo "❌ Error at line $LINENO"; pm2 logs "${{ secrets.PM2_APP }}" --lines 120 --nostream || true; exit 1' ERR
