@@ -38,7 +38,7 @@ jobs:
             echo "Prepared: ${{ secrets.SERVER_PATH }}"
             ls -la "${{ secrets.SERVER_PATH }}" || true
 
-      # NOTE: appleboy/scp-action@v0.1.7 needs a single-line, comma-separated 'source'
+      # scp-action@v0.1.7 ⇒ source এক লাইনে, কমা-সেপারেটেড থাকতে হবে
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -50,17 +50,16 @@ jobs:
           overwrite: true
           debug: true
 
-      - name: SSH → install deps & restart PM2 (env-safe)
+      - name: SSH → install deps & restart PM2 (env-safe + logs)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
-          # request_pty: true   # nvm ব্যবহার করলে PATH issue হলে আনকমেন্ট করুন
+          # request_pty: true   # nvm দিয়ে চালালে PATH ইস্যু হলে আনকমেন্ট করুন
           script: |
             set -Eeuo pipefail
-            trap 'echo "❌ Error at line $LINENO"; pm2 logs "${{ secrets.PM2_APP }}" --lines 120 --nostream || true; exit 1' ERR
 
             DEPLOY_DIR="${{ secrets.SERVER_PATH }}"
             APP_NAME="${{ secrets.PM2_APP }}"
@@ -71,7 +70,7 @@ jobs:
               apt-get install -y nodejs
             fi
 
-            # If you use nvm on the server, load it (harmless if absent)
+            # nvm থাকলে লোড (না থাকলে harmless)
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" || true
             [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion" || true
@@ -113,16 +112,25 @@ jobs:
             fi
 
             echo "➤ Start/Restart PM2: $APP_NAME"
+            set +e
             if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
-              pm2 restart "$APP_NAME" --update-env || { pm2 logs "$APP_NAME" --lines 200 --nostream; exit 1; }
+              pm2 restart "$APP_NAME" --update-env
+              PM2_RC=$?
             else
-              pm2 start "$ENTRY_FILE" --name "$APP_NAME" --cwd "$DEPLOY_DIR" || { pm2 logs "$APP_NAME" --lines 200 --nostream; exit 1; }
+              pm2 start "$ENTRY_FILE" --name "$APP_NAME" --cwd "$DEPLOY_DIR"
+              PM2_RC=$?
+            fi
+            set -e
+
+            echo "➤ PM2 return code: $PM2_RC"
+            pm2 ls || true
+            echo "➤ Tail recent logs"
+            pm2 logs "$APP_NAME" --lines 120 --nostream || true
+
+            if [ "$PM2_RC" -ne 0 ]; then
+              echo "❌ PM2 start/restart failed with code $PM2_RC"
+              exit "$PM2_RC"
             fi
 
             pm2 save
-            pm2 ls
-
-            echo "➤ Tail last logs"
-            pm2 logs "$APP_NAME" --lines 80 --nostream || true
-
             echo "➤ Deploy complete!"
