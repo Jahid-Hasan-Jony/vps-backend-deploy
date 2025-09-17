@@ -24,7 +24,7 @@ jobs:
           ls -la
           (command -v tree && tree -a -L 2 || true)
 
-      # Ensure target dir exists before scp
+      # ensure target dir exists (prevents scp failure)
       - name: SSH → prepare deploy dir
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -35,10 +35,9 @@ jobs:
           script: |
             set -e
             mkdir -p "${{ secrets.SERVER_PATH }}"
-            echo "Prepared: ${{ secrets.SERVER_PATH }}"
             ls -la "${{ secrets.SERVER_PATH }}" || true
 
-      # scp-action@v0.1.7 ⇒ source এক লাইনে, কমা-সেপারেটেড থাকতে হবে
+      # scp v0.1.7 ⇒ single-line, comma-separated source
       - name: Copy backend files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -50,7 +49,7 @@ jobs:
           overwrite: true
           debug: true
 
-      - name: SSH → install deps & restart PM2 (env-safe + logs)
+      - name: SSH → install deps & (re)start PM2 (env-safe + diagnostics)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -64,7 +63,7 @@ jobs:
             DEPLOY_DIR="${{ secrets.SERVER_PATH }}"
             APP_NAME="${{ secrets.PM2_APP }}"
 
-            echo "➤ Ensure Node.js/npm present (install if missing)"
+            echo "➤ Ensure Node.js/npm present"
             if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
               curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
               apt-get install -y nodejs
@@ -91,8 +90,17 @@ jobs:
             [ -f .env ] && . ./.env
             set +a
 
-            echo "➤ Sanity env"
-            echo "PORT=${PORT:-<not-set>}"
+            if [ -z "${PORT:-}" ]; then
+              echo "❌ PORT not set in .env (BACKEND_ENV secret)"; exit 1
+            fi
+
+            echo "➤ Port sanity"
+            echo "PORT=$PORT"
+            echo "➤ Current PM2 processes"
+            pm2 ls || true
+
+            echo "➤ Check if PORT $PORT already in use"
+            (ss -ltnp | grep ":$PORT") && echo "⚠️ Port $PORT busy (expected if an old instance is running)" || echo "OK: no listener on $PORT"
 
             echo "➤ Normalize ownership (optional)"
             chown -R "$USER:$USER" "$DEPLOY_DIR" || true
@@ -114,9 +122,11 @@ jobs:
             echo "➤ Start/Restart PM2: $APP_NAME"
             set +e
             if pm2 describe "$APP_NAME" >/dev/null 2>&1; then
+              # App exists → restart with new env
               pm2 restart "$APP_NAME" --update-env
               PM2_RC=$?
             else
+              # App doesn't exist → try start
               pm2 start "$ENTRY_FILE" --name "$APP_NAME" --cwd "$DEPLOY_DIR"
               PM2_RC=$?
             fi
@@ -124,11 +134,15 @@ jobs:
 
             echo "➤ PM2 return code: $PM2_RC"
             pm2 ls || true
-            echo "➤ Tail recent logs"
+
+            echo "➤ Last logs (120 lines)"
             pm2 logs "$APP_NAME" --lines 120 --nostream || true
 
             if [ "$PM2_RC" -ne 0 ]; then
-              echo "❌ PM2 start/restart failed with code $PM2_RC"
+              echo "❌ PM2 start/restart failed ($PM2_RC)"
+              echo "👉 Hints:"
+              echo "   • নিশ্চিত হও secrets.PM2_APP == হাতে চালানো PM2 প্রোসেসের নাম (উদা: api-backend)"
+              echo "   • If port-in-use, either set PM2_APP to the running one OR stop it: pm2 delete <old-name>"
               exit "$PM2_RC"
             fi
 
